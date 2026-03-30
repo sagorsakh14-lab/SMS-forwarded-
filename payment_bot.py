@@ -32,33 +32,52 @@ approved_set = set()
 # ========== SMS PARSER ==========
 def parse_sms(text: str) -> dict | None:
     """
-    বিকাশ: You have received Tk 50.00 from 01XXXXXXXXX. TrxID DCT8LLFMDG
-    নগদ:  Cash In of BDT 50.00 from 01XXXXXXXXX successful. TrxID: ABC123
+    SMS Forwarder app format:
+    From: bKash
+    Time: 2026-03-29 21:31:52+0600
+
+    You have received Tk 50.00 from 01XXXXXXXXX. TrxID DCT8LLFMDG
+
+    Raw bKash: You have received Tk 50.00 from 01XXXXXXXXX. TrxID DCT8LLFMDG
+    Raw Nagad: Cash In of BDT 50.00 from 01XXXXXXXXX successful. TrxID: ABC123
     """
+    # SMS Forwarder header সরিয়ে দাও
+    # "From: bKash\nTime: ...\n\n" এই অংশ বাদ দাও
+    clean_text = re.sub(r'^From:.*?\n(?:Time:.*?\n)?\n?', '', text, flags=re.IGNORECASE | re.MULTILINE)
+    if not clean_text.strip():
+        clean_text = text  # header remove না হলে original use করো
+
     # Amount
     amt = re.search(
         r'(?:received|Cash\s*In(?:\s*of)?)\s+(?:Tk|BDT)\s*([\d,]+(?:\.\d+)?)',
-        text, re.IGNORECASE
+        clean_text, re.IGNORECASE
     )
     if not amt:
-        amt = re.search(r'(?:Tk|BDT)\s*([\d,]+(?:\.\d+)?)', text, re.IGNORECASE)
+        amt = re.search(r'(?:Tk|BDT)\s*([\d,]+(?:\.\d+)?)', clean_text, re.IGNORECASE)
 
     # TrxID
     trx = re.search(
         r'(?:TrxID|TxnID|Txn\s*ID|Transaction\s*ID)[:\s]+([A-Z0-9]{5,20})',
-        text, re.IGNORECASE
+        clean_text, re.IGNORECASE
     )
 
     if not amt or not trx:
         return None
 
-    sender = re.search(r'from\s+(01[0-9]{9})', text, re.IGNORECASE)
+    sender = re.search(r'from\s+(01[0-9]{9})', clean_text, re.IGNORECASE)
+
+    # method নির্ধারণ — From: header থেকেও পাওয়া যাবে
+    method = 'bKash'
+    if 'nagad' in text.lower():
+        method = 'Nagad'
+    elif 'bkash' in text.lower():
+        method = 'bKash'
 
     return {
         'amount': float(amt.group(1).replace(',', '')),
         'txn_id': trx.group(1).strip().upper(),
         'sender': sender.group(1) if sender else '',
-        'method': 'Nagad' if 'nagad' in text.lower() else 'bKash'
+        'method': method
     }
 
 # ========== FIRESTORE REST ==========
